@@ -122,6 +122,9 @@ class Player(Ship):
     def healthbar(self, window):
         pygame.draw.rect(window, (255,0,0), (self.x, self.y + self.ship_img.get_height() + 10, self.ship_img.get_width(), 10))
         pygame.draw.rect(window, (0,255,0), (self.x, self.y + self.ship_img.get_height() + 10, self.ship_img.get_width() * (self.health/self.max_health), 10))
+        if self.health <= 0:
+            self.health = 0
+
 
 class Enemy(Ship):
     COLOUR_map = {
@@ -152,7 +155,7 @@ def collide(obj1, obj2):
 def main():
     run = True 
     FPS = 60
-    level = 1
+    level = 0
     lives = 5
     main_font = pygame.font.SysFont("comicsans", 50)
     lost_font = pygame.font.SysFont("comicsans", 60)
@@ -197,7 +200,11 @@ def main():
         clock.tick(FPS)
         redraw_window()
 
-        if lives <= 0 or player.health <= 0:
+        if player.health <= 0:
+            lives -= 1
+            player.health = 100
+
+        if lives <= 0:
             lost = True
             lost_count += 1
 
@@ -217,6 +224,8 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 quit()
+
+        player.healthbar(WIN)
         
         keys = pygame.key.get_pressed()
         if keys[pygame.K_UP] and player.y - player_vel > 0: #UP key gets pressed
@@ -224,7 +233,7 @@ def main():
         if keys[pygame.K_DOWN] and player.y + player_vel + player.get_height() + 15 < height: #DOWN key gets pressed with wall restrictions
             player.y += player_vel
         if keys[pygame.K_LEFT] and player.x - player_vel > 0: #LEFT key gets pressed
-            player.x -= player_vel
+            player.x -= player_vel 
         if keys[pygame.K_RIGHT] and player.x + player_vel + player.get_width() < width: #RIGHT key gets pressed
             player.x += player_vel
         if keys[pygame.K_SPACE]:
@@ -244,6 +253,14 @@ def main():
             elif enemy.y + enemy.get_height() > height:
                 lives -= 1
                 enemies.remove(enemy)
+
+        if player.health <= 0:
+            player.health = 100
+            lives -= 1
+
+        if lives <= 0:
+            lost = True
+            lost_count += 1
         
         player.move_lasers(-laser_vel, enemies)
 
