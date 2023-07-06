@@ -160,18 +160,17 @@ def main():
     enemies = []
     wave_length = 5 
     enemy_vel = 1
-    for i in range(wave_length):
-        enemy = Enemy(random.randrange(50, width-100), random.randrange(-1500*level/5, -100), random.choice(["red", "blue", "green"]))
-        enemies.append(enemy)
-
+    
     player_vel = 5
     laser_vel = 5 
+
     player = Player(300, 630)
 
     clock = pygame.time.Clock()
 
     lost = False
     lost_count = 0
+
     
     def redraw_window():
         WIN.blit(BG, (0,0))
@@ -196,6 +195,7 @@ def main():
 
     while run:
         clock.tick(FPS)
+        redraw_window()
 
         if lives <= 0 or player.health <= 0:
             lost = True
@@ -207,13 +207,16 @@ def main():
             else: continue
         
         if len(enemies)==0:
-            level +=1
-            wave_length +=5
+            level += 1
+            wave_length += 5
+            for i in range(wave_length):
+                enemy = Enemy(random.randrange(50, width-100), random.randrange(-1500*level/5, -100), random.choice(["red", "blue", "green"]))
+                enemies.append(enemy)
 
         #if we decide to quit the game
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                run = False
+                quit()
         
         keys = pygame.key.get_pressed()
         if keys[pygame.K_UP] and player.y - player_vel > 0: #UP key gets pressed
@@ -241,8 +244,7 @@ def main():
             elif enemy.y + enemy.get_height() > height:
                 lives -= 1
                 enemies.remove(enemy)
-        redraw_window()
-
+        
         player.move_lasers(-laser_vel, enemies)
 
 def main_menu():
@@ -260,4 +262,4 @@ def main_menu():
                 main()
     pygame.quit()
 
-main()
+main_menu()
