@@ -180,8 +180,10 @@ class Game:
         self.lost = False
         self.lost_count = 0
 
+        self.BG = pygame.transform.scale(pygame.image.load(os.path.join("assets", "background-black.png")), (self.width, self.height))
+
     def redraw_window(self):
-        self.WIN.blit(BG, (0, 0))
+        self.WIN.blit(self.BG, (0, 0))
 
         # Draw text
         lives_label = self.main_font.render(f"Lives: {self.lives}", 1, (255, 255, 255))
@@ -209,81 +211,77 @@ class Game:
         self.lost = False
         self.lost_count = 0
 
-    def main(self):
-        while self.run:
-            self.clock.tick(self.FPS)
-            self.redraw_window()
+    def collision(self):
+        for enemy in self.enemies[:]:
+            if collide(enemy, self.player):
+                self.player.health -= 10
+                self.enemies.remove(enemy)
 
-            if self.player.health <= 0:
-                self.lives -= 1
-                self.player.health = 100
-
-            if self.lives <= 0:
-                self.lost = True
-                self.lost_count += 1
-
-            if self.lost:
-                if self.lost_count > self.FPS * 3:
-                    run = False
-                else: continue
-        
-            if len(self.enemies)==0:
-                self.level += 1
-                self.wave_length += 5
-                for i in range(self.wave_length):
-                    enemy = Enemy(random.randrange(50, width-100), random.randrange(-1500*self.level/5, -100), random.choice(["red", "blue", "green"]))
-                    self.enemies.append(enemy)
-
-            # Handle events
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.run = False
-
-            self.player.healthbar(WIN)
-        
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_UP] and self.player.y - self.player_vel > 0: #UP key gets pressed
-                self.player.y -= self.player_vel
-            if keys[pygame.K_DOWN] and self.player.y + self.player_vel + self.player.get_height() + 15 < height: #DOWN key gets pressed with wall restrictions
-                self.player.y += self.player_vel
-            if keys[pygame.K_LEFT] and self.player.x - self.player_vel > 0: #LEFT key gets pressed
-                self.player.x -= self.player_vel 
-            if keys[pygame.K_RIGHT] and self.player.x + self.player_vel + self.player.get_width() < width: #RIGHT key gets pressed
-                self.player.x += self.player_vel
-            if keys[pygame.K_SPACE]:
-                self.player.shoot()
-
-            for enemy in self.enemies[:]:
-                enemy.move(self.enemy_vel)
-                enemy.move_lasers(self.laser_vel, self.player)
-
-                if random.randrange(0, 2*30) == 1:
-                    enemy.shoot()
-
-                if collide(enemy, self.player):
+            for laser in enemy.lasers:
+                if collide(laser, self.player):
                     self.player.health -= 10
                     self.enemies.remove(enemy)
+                    if laser in enemy.lasers:
+                        enemy.lasers.remove(laser)
 
-                elif enemy.y + enemy.get_height() > height:
-                    self.lives -= 1
-                    self.enemies.remove(enemy)
+        self.player.move_lasers(-self.laser_vel, self.enemies)
 
-            if self.player.health <= 0:
-                self.player.health = 100
-                self.lives -= 1
+    def play_step(self):
 
-            if self.lives <= 0:
-                self.lost = True
-                self.lost_count += 1
+        #0. update ui and clock
+        self.clock.tick(self.FPS)
+        self.redraw_window()
         
-            self.player.move_lasers(-self.laser_vel, self.enemies)
+        #1. collect user input
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.run = False
+                pygame.quit()
+                quit()
 
+        #2. move
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_UP] and self.player.y - self.player_vel > 0: #UP key gets pressed
+            self.player.y -= self.player_vel
+        if keys[pygame.K_DOWN] and self.player.y + self.player_vel + self.player.get_height() + 15 < height: #DOWN key gets pressed with wall restrictions
+            self.player.y += self.player_vel
+        if keys[pygame.K_LEFT] and self.player.x - self.player_vel > 0: #LEFT key gets pressed
+            self.player.x -= self.player_vel 
+        if keys[pygame.K_RIGHT] and self.player.x + self.player_vel + self.player.get_width() < width: #RIGHT key gets pressed
+            self.player.x += self.player_vel
+        if keys[pygame.K_SPACE]:
+            self.player.shoot()
 
-            # Call reset function if needed
-            if self.lost and self.lost_count > self.FPS * 3:
-                self.reset()
+        #3. check if game over
+        reward = 0
+        if self.player.health <= 0: #health bar
+            self.lives -= 1
+            self.player.health = 100
 
+        if self.lives <= 0: #if health bar is low- lose a life
+            self.lost = True
+            self.lost_count += 1
+            reward = -10
+
+        if self.lost and self.lost_count > self.FPS * 3: #if player has no lives- end game
+            self.run = False
+            self.reset()
+            return self.run
+
+        #4. place enemies
+        if len(self.enemies)==0:
+            self.level += 1
+            self.wave_length += 5
+            for i in range(self.wave_length):
+                enemy = Enemy(random.randrange(50, width-100), random.randrange(-1500*self.level/5, -100), random.choice(["red", "blue", "green"]))
+                self.enemies.append(enemy)
+
+        self.collision()
+
+        self.player.healthbar(WIN)
         pygame.quit()
+
+        return self.run
 
     def main_menu(self):
         title_font = pygame.font.SysFont("comicsans", 70)
@@ -297,9 +295,18 @@ class Game:
                 if event.type == pygame.QUIT:
                     run = False
                 if event.type == pygame.MOUSEBUTTONDOWN:
-                    self.main()
+                    while self.run:
+                        reward, self.run = self.main()
+                        if self.run == False:
+                            break
 
 
 # Create an instance of the Game class
-game = Game()
-game.main_menu()
+if __name__ == "__main__":
+    game = Game()
+
+    #game loop
+    while True:
+        run = game.play_step()
+        if run == False:
+            break
