@@ -34,13 +34,12 @@ env.close()
 import numpy as np
 import tensorflow as tf
 
-Adam = tf.keras.optimizers()
 
 def build_model(height, width, channels, actions):
     model = tf.keras.Sequential()
     model.add(tf.keras.layers.Convolution2D(32, (8,8), strides = (4,4), activation = 'relu', input_shape = (3, height, width, channels)))
     model.add(tf.keras.layers.Convolution2D(64, (4,4), strides = (2,2), activation = 'relu'))
-    model.add(tf.keras.layers.Convolution2D(64, (3,3), activations = 'relu'))
+    model.add(tf.keras.layers.Convolution2D(64, (3,3), activation='relu'))
     model.add(tf.keras.layers.Flatten())
     model.add(tf.keras.layers.Dense(512, activation = 'relu'))
     model.add(tf.keras.layers.Dense(256, activation = 'relu'))
