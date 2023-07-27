@@ -1,11 +1,12 @@
-import pygame, sys, os
+import pygame, sys, os, gym
+import numpy as np
 from player import Player
 import obstacle
 from alien import Alien, Extra
 from random import choice, randint
 from laser import Laser
  
-class Game:
+class Game(gym.Env):
 	def __init__(self):
 		# Player setup
 		player_sprite = Player((screen_width / 2, screen_height), screen_width, 5)
@@ -34,7 +35,7 @@ class Game:
 
 		# Extra setup
 		self.extra = pygame.sprite.GroupSingle()
-		self.extra_spawn_time = randint(40,80)
+		self.extra_spawn_time = randint(40, 80)
 
 		# Audio
 		music = pygame.mixer.Sound(os.path.join('audio', 'music.wav'))
@@ -45,20 +46,43 @@ class Game:
 		self.explosion_sound = pygame.mixer.Sound(os.path.join('audio', 'explosion.wav'))
 		self.explosion_sound.set_volume(0.3)
 
-	def create_obstacle(self, x_start, y_start,offset_x):
+		# Set up the observation space
+		self.observation_space = gym.spaces.Box(low=0, high=255, shape=(screen_height, screen_width, 3), dtype=np.uint8)
+
+	def get_observation(self):
+        # This function captures the current game screen and player's position
+		player_pos = self.player.sprite.rect.center
+
+        # Get the current game screen
+		game_screen = pygame.surfarray.array3d(screen)
+		game_screen = np.swapaxes(game_screen, 0, 1)  # Swap axes to match Gym convention (height, width, channels)
+
+        # Normalize the values to 0-255 and convert to uint8
+		game_screen = np.clip((game_screen / 255.0) * 255.0, 0, 255).astype(np.uint8)
+
+        # Add player's position as an extra feature in the observation
+		player_position_indicator = np.zeros_like(game_screen)
+		player_position_indicator[player_pos[1], player_pos[0]] = [255, 255, 255]
+
+		# Combine the game screen and player position indicator to form the final observation
+		observation = np.maximum(game_screen, player_position_indicator)
+        
+		return observation
+	
+	def create_obstacle(self, x_start, y_start, offset_x):
 		for row_index, row in enumerate(self.shape):
-			for col_index,col in enumerate(row):
+			for col_index, col in enumerate(row):
 				if col == 'x':
 					x = x_start + col_index * self.block_size + offset_x
 					y = y_start + row_index * self.block_size
-					block = obstacle.Block(self.block_size,(241,79,80),x,y)
+					block = obstacle.Block(self.block_size, (241, 79, 80), x, y)
 					self.blocks.add(block)
 
-	def create_multiple_obstacles(self,*offset,x_start,y_start):
+	def create_multiple_obstacles(self, *offset, x_start, y_start):
 		for offset_x in offset:
-			self.create_obstacle(x_start,y_start,offset_x)
+			self.create_obstacle(x_start, y_start, offset_x)
 
-	def alien_setup(self,rows,cols,x_distance = 60,y_distance = 48,x_offset = 70, y_offset = 100):
+	def alien_setup(self, rows, cols, x_distance = 60, y_distance = 48, x_offset = 70, y_offset = 100):
 		for row_index, row in enumerate(range(rows)):
 			for col_index, col in enumerate(range(cols)):
 				x = col_index * x_distance + x_offset
@@ -79,7 +103,7 @@ class Game:
 				self.alien_direction = 1
 				self.alien_move_down(2)
 
-	def alien_move_down(self,distance):
+	def alien_move_down(self, distance):
 		if self.aliens:
 			for alien in self.aliens.sprites():
 				alien.rect.y += distance
@@ -146,18 +170,18 @@ class Game:
 	def display_lives(self):
 		for live in range(self.lives - 1):
 			x = self.live_x_start_pos + (live * (self.live_surf.get_size()[0] + 10))
-			screen.blit(self.live_surf,(x,8))
+			screen.blit(self.live_surf , (x, 8))
 
 	def display_score(self):
-		score_surf = self.font.render(f'score: {self.score}',False,'white')
-		score_rect = score_surf.get_rect(topleft = (10,-10))
-		screen.blit(score_surf,score_rect)
+		score_surf = self.font.render(f'score: {self.score}', False, 'white')
+		score_rect = score_surf.get_rect(topleft = (10, -10))
+		screen.blit(score_surf, score_rect)
 
 	def victory_message(self):
 		if not self.aliens.sprites():
-			victory_surf = self.font.render('You won',False,'white')
+			victory_surf = self.font.render('You won', False, 'white')
 			victory_rect = victory_surf.get_rect(center = (screen_width / 2, screen_height / 2))
-			screen.blit(victory_surf,victory_rect)
+			screen.blit(victory_surf, victory_rect)
 
 	def run(self):
 		self.player.update()
@@ -182,19 +206,19 @@ class Game:
 class CRT:
 	def __init__(self):
 		self.tv = pygame.image.load(os.path.join('graphics', 'tv.png'))
-		self.tv = pygame.transform.scale(self.tv,(screen_width,screen_height))
+		self.tv = pygame.transform.scale(self.tv, (screen_width, screen_height))
 
 	def create_crt_lines(self):
 		line_height = 3
 		line_amount = int(screen_height / line_height)
 		for line in range(line_amount):
 			y_pos = line * line_height
-			pygame.draw.line(self.tv, 'black', (0,y_pos), (screen_width,y_pos), 1)
+			pygame.draw.line(self.tv, 'black', (0, y_pos), (screen_width, y_pos), 1)
 
 	def draw(self):
-		self.tv.set_alpha(randint(75,90))
+		self.tv.set_alpha(randint(75, 90))
 		self.create_crt_lines()
-		screen.blit(self.tv,(0,0))
+		screen.blit(self.tv, (0, 0))
 
 if __name__ == '__main__':
 	pygame.init()
