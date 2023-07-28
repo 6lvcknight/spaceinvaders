@@ -1,10 +1,20 @@
 import pygame, sys, os, gym
 import numpy as np
+import tensorflow as tf
+from collections import deque
+from rl.agents import DQNAgent
+from rl.memory import SequentialMemory
+from rl.policy import LinearAnnealedPolicy, EpsGreedyQPolicy
+
+
 from player import Player
 import obstacle
 from alien import Alien, Extra
 from random import choice, randint
 from laser import Laser
+
+# Enable eager execution
+tf.config.run_functions_eagerly(True)
  
 class Game(gym.Env):
 	def __init__(self):
@@ -55,6 +65,42 @@ class Game(gym.Env):
 		# Set up the action space
 		self.action_space = gym.spaces.Discrete(3)
 		
+		# Build the deep Q-network model for the agent
+		self.model = self.build_model(screen_height, screen_width, 3, self.action_space.n)
+		
+		# Exploration parameters
+		self.epsilon = 1.0  # Initial exploration rate
+		self.epsilon_min = 0.01  # Minimum exploration rate
+		self.epsilon_decay = 0.995  # Decay rate for exploration rate
+		
+		# Memory buffer for experience replay
+		self.memory = deque(maxlen=2000)  # Replay memory buffer size
+		
+		# Hyperparameters for training
+		self.batch_size = 32  # Batch size for training the neural network
+		self.gamma = 0.95  # Discount factor for future rewards
+
+		# Build the DQN agent
+		self.dqn_agent = self.build_agent(self.model, self.action_space.n)
+		
+	def build_model(self, height, width, channels, actions):
+		model = tf.keras.Sequential()
+		model.add(tf.keras.layers.Convolution2D(32, (8,8), strides=(4,4), activation='relu', input_shape=(height, width, channels)))
+		model.add(tf.keras.layers.Convolution2D(64, (4,4), strides=(2,2), activation='relu'))
+		model.add(tf.keras.layers.Convolution2D(64, (3,3), activation='relu'))
+		model.add(tf.keras.layers.Flatten())
+		model.add(tf.keras.layers.Dense(512, activation='relu'))
+		model.add(tf.keras.layers.Dense(256, activation='relu'))
+		model.add(tf.keras.layers.Dense(actions, activation='linear'))
+		return model
+	
+	def build_agent(self, model, actions):
+		policy = LinearAnnealedPolicy(EpsGreedyQPolicy(), attr='eps', value_max=1, value_min=.1, value_test=.2, nb_steps=10000)
+		memory = SequentialMemory(limit=1000, window_length=3)
+		dqn = DQNAgent(model=model, memory=memory, policy=policy, enable_dueling_network=True,
+                       dueling_type='avg', nb_actions=actions, nb_steps_warmup=1000)
+		return dqn
+	
 	def reset(self):
 		'''Reset the environment and return the initial observation'''
 
@@ -380,23 +426,58 @@ if __name__ == '__main__':
 	screen_height = 600
 	screen = pygame.display.set_mode((screen_width, screen_height))
 	clock = pygame.time.Clock()
-	game = Game()
+	env = Game()
 	crt = CRT()
 
 	ALIENLASER = pygame.USEREVENT + 1
 	pygame.time.set_timer(ALIENLASER,800)
 
-	while True:
-		for event in pygame.event.get():
-			if event.type == pygame.QUIT:
-				pygame.quit()
-				sys.exit()
-			if event.type == ALIENLASER:
-				game.alien_shoot()
-
-		screen.fill((30,30,30))
-		game.run()
-		#crt.draw()
+	
+	# Build and compile the agent
+	actions = env.action_space.n
+	model = env.model
+	dqn = env.build_agent(model, actions)
+	dqn.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4))
+	
+	# Training Loop
+	total_episodes = 1000
+	for episode in range(total_episodes):
+		state = env.reset()
+		done = False
+		total_reward = 0
+		
+		while not done:
+			# Epsilon-greedy action selection
+			action = dqn.act(state)
+			next_state, reward, done, _ = env.step(action)
+			total_reward += reward
 			
-		pygame.display.flip()
-		clock.tick(60)
+			# Store the experience in the replay memory
+			dqn.remember(state, action, reward, next_state, done)
+			state = next_state
+			
+			# Perform a training update if enough experiences are in the replay memory
+			if len(dqn.memory) >= dqn.batch_size:
+				dqn.train()
+
+			# Update the target network (if applicable, for DQN)
+			dqn.update_target_model()
+				
+			# Decay epsilon after each episode
+			if dqn.policy.__class__.__name__ == 'LinearAnnealedPolicy':
+				dqn.policy.eps = max(dqn.policy.eps * dqn.policy.value_decay, dqn.policy.value_min)
+
+			screen.fill((30,30,30))
+			env.run()
+			#crt.draw()
+			
+			pygame.display.flip()
+			clock.tick(60)
+		
+		# Print progress after each episode
+		print(f"Episode: {episode + 1}/{total_episodes}, Total Reward: {total_reward}")
+
+		
+		
+	# Save the trained model
+	dqn.save_weights('dqn_trained_weights.h5', overwrite=True)
