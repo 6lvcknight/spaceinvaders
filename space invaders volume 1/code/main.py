@@ -8,6 +8,56 @@ from laser import Laser
  
 class Game(gym.Env):
 	def __init__(self):
+		'''initialization'''
+
+		# Player setup
+		player_sprite = Player((screen_width / 2, screen_height), screen_width, 5)
+		self.player = pygame.sprite.GroupSingle(player_sprite)
+
+		# health and score setup
+		self.lives = 3
+		self.live_surf = pygame.image.load(os.path.join('graphics', 'player.png'))
+		self.live_x_start_pos = screen_width - (self.live_surf.get_size()[0] * 2 + 20)
+		self.score = 0
+		self.font = pygame.font.Font(os.path.join('font', 'Pixeled.ttf'), 20)
+
+		# Obstacle setup
+		self.shape = obstacle.shape
+		self.block_size = 6
+		self.blocks = pygame.sprite.Group()
+		self.obstacle_amount = 4
+		self.obstacle_x_positions = [num * (screen_width / self.obstacle_amount) for num in range(self.obstacle_amount)]
+		self.create_multiple_obstacles(*self.obstacle_x_positions, x_start = screen_width / 15, y_start = 480)
+
+		# Alien setup
+		self.aliens = pygame.sprite.Group()
+		self.alien_lasers = pygame.sprite.Group()
+		self.alien_setup(rows = 6, cols = 8)
+		self.alien_direction = 1
+		self.alien_value = 10
+
+		# Extra setup
+		self.extra = pygame.sprite.GroupSingle()
+		self.extra_spawn_time = randint(40, 80)
+
+		# Audio
+		music = pygame.mixer.Sound(os.path.join('audio', 'music.wav'))
+		music.set_volume(0.2)
+		music.play(loops = -1)
+		self.laser_sound = pygame.mixer.Sound(os.path.join('audio', 'laser.wav'))
+		self.laser_sound.set_volume(0.5)
+		self.explosion_sound = pygame.mixer.Sound(os.path.join('audio', 'explosion.wav'))
+		self.explosion_sound.set_volume(0.3)
+
+		# Set up the observation space
+		self.observation_space = gym.spaces.Box(low=0, high=255, shape=(screen_height, screen_width, 3), dtype=np.uint8)
+
+		# Set up the action space
+		self.action_space = gym.spaces.Discrete(3)
+		
+	def reset(self):
+		'''Reset the environment and return the initial observation'''
+
 		# Player setup
 		player_sprite = Player((screen_width / 2, screen_height), screen_width, 5)
 		self.player = pygame.sprite.GroupSingle(player_sprite)
@@ -46,28 +96,111 @@ class Game(gym.Env):
 		self.explosion_sound = pygame.mixer.Sound(os.path.join('audio', 'explosion.wav'))
 		self.explosion_sound.set_volume(0.3)
 
-		# Set up the observation space
-		self.observation_space = gym.spaces.Box(low=0, high=255, shape=(screen_height, screen_width, 3), dtype=np.uint8)
-
-	def get_observation(self):
-        # This function captures the current game screen and player's position
-		player_pos = self.player.sprite.rect.center
-
-        # Get the current game screen
-		game_screen = pygame.surfarray.array3d(screen)
-		game_screen = np.swapaxes(game_screen, 0, 1)  # Swap axes to match Gym convention (height, width, channels)
-
-        # Normalize the values to 0-255 and convert to uint8
-		game_screen = np.clip((game_screen / 255.0) * 255.0, 0, 255).astype(np.uint8)
-
-        # Add player's position as an extra feature in the observation
-		player_position_indicator = np.zeros_like(game_screen)
-		player_position_indicator[player_pos[1], player_pos[0]] = [255, 255, 255]
-
-		# Combine the game screen and player position indicator to form the final observation
-		observation = np.maximum(game_screen, player_position_indicator)
-        
+		observation = self.get_observation()
+		
 		return observation
+	
+	def step(self, action):
+		# Validate the action
+		if not self.action_space.contains(action):
+			raise ValueError(f"Invalid action: {action}")
+		
+		# Take the action and update the game state
+		if action == 0:  # Move left
+			self.player.sprite.move_left()
+		elif action == 1:  # Move right
+			self.player.sprite.move_right()
+		elif action == 2:  # Fire player laser
+			self.player.sprite.fire_laser()
+
+		# Move aliens horizontally based on the alien_direction variable
+		alien_speed = 2
+		for alien in self.aliens:
+			alien.rect.x += alien_speed * self.alien_direction
+
+		# Move aliens downward when they reach the screen edge
+		if self.aliens:
+			if self.aliens.sprites()[0].rect.right >= screen_width or self.aliens.sprites()[-1].rect.left <= 0:
+				self.alien_direction *= -1
+				self.alien_move_down(2)
+				
+		# Check for collisions with player lasers
+		if self.player.sprite.lasers:
+			for laser in self.player.sprite.lasers:
+				# Check for collisions with obstacles
+				if pygame.sprite.spritecollide(laser, self.blocks, True):
+					laser.kill()
+					
+				# Check for collisions with aliens
+				aliens_hit = pygame.sprite.spritecollide(laser, self.aliens, True)
+				if aliens_hit:
+					for alien in aliens_hit:
+						self.score += alien.value
+					laser.kill()
+					self.explosion_sound.play()
+				
+				# Check for collisions with extra aliens
+				if pygame.sprite.spritecollide(laser, self.extra, True):
+					self.score += 500
+					laser.kill()			
+					
+		# Move alien lasers downward
+		alien_laser_speed = 4
+		for alien_laser in self.alien_lasers:
+			alien_laser.rect.y += alien_laser_speed
+			
+		# Check for collisions with player
+		if self.alien_lasers:
+			for alien_laser in self.alien_lasers:
+				if pygame.sprite.spritecollide(alien_laser, self.blocks, True):
+					alien_laser.kill()
+					
+				if pygame.sprite.spritecollide(alien_laser, self.player, False):
+					alien_laser.kill()
+					self.lives -= 1
+					if self.lives <= 0:
+						pygame.quit()
+						sys.exit()
+						
+		# Check for collisions with aliens and obstacles
+		for alien in self.aliens:
+			pygame.sprite.spritecollide(alien, self.blocks, True)
+			
+			if pygame.sprite.spritecollide(alien, self.player, False):
+				pygame.quit()
+				sys.exit()
+
+
+		# Get the new observation after taking the action
+		observation = self.get_observation()
+
+		reward = 0
+
+		# Positive reward for destroying an alien
+		destroyed_aliens = len(self.aliens) - len(pygame.sprite.spritecollide(self.aliens, self.blocks, False))
+		reward += destroyed_aliens * self.alien_value
+
+		# Negative reward for getting hit by an alien laser or colliding with an obstacle
+		if pygame.sprite.spritecollide(self.player.sprite, self.alien_lasers, False) or pygame.sprite.spritecollide(self.player.sprite, self.blocks, False):
+			reward -= 10
+		
+		# Check if the game is over
+		done = False
+		if self.lives <= 0:
+			done = True
+	    
+		# return the player's current score, lives
+		info = {'score': self.score, 'lives': self.lives}
+		
+		return observation, reward, done, info
+	
+	def render(self, mode='human'):
+		# Implement the rendering method (optional)
+		pass
+
+	def close(self):
+		# Implement the close method (optional)
+		pass
 	
 	def create_obstacle(self, x_start, y_start, offset_x):
 		for row_index, row in enumerate(self.shape):
@@ -182,6 +315,27 @@ class Game(gym.Env):
 			victory_surf = self.font.render('You won', False, 'white')
 			victory_rect = victory_surf.get_rect(center = (screen_width / 2, screen_height / 2))
 			screen.blit(victory_surf, victory_rect)
+
+	def get_observation(self):
+
+		# This function captures the current game screen and player's position
+		player_pos = self.player.sprite.rect.center
+
+		# Get the current game screen
+		game_screen = pygame.surfarray.array3d(screen)
+		game_screen = np.swapaxes(game_screen, 0, 1)  # Swap axes to match Gym convention (height, width, channels)
+
+		# Normalize the values to 0-255 and convert to uint8
+		game_screen = np.clip((game_screen / 255.0) * 255.0, 0, 255).astype(np.uint8)
+
+		# Add player's position as an extra feature in the observation
+		player_position_indicator = np.zeros_like(game_screen)
+		player_position_indicator[player_pos[1], player_pos[0]] = [255, 255, 255]
+
+		# Combine the game screen and player position indicator to form the final observation
+		observation = np.maximum(game_screen, player_position_indicator)
+        
+		return observation
 
 	def run(self):
 		self.player.update()
