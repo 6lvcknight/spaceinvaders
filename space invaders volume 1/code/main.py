@@ -449,7 +449,7 @@ if __name__ == '__main__':
 		
 		while not done:
 			# Epsilon-greedy action selection
-			action = dqn.model.predict(state[None])[0].argmax()
+			action = dqn.model.predict(state[None])[0].argmax() ####error 
 			next_state, reward, done, _ = env.step(action)
 			total_reward += reward
 			
