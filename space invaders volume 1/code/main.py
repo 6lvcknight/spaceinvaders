@@ -5,12 +5,11 @@ from collections import deque
 from rl.agents import DQNAgent
 from rl.memory import SequentialMemory
 from rl.policy import LinearAnnealedPolicy, EpsGreedyQPolicy
-
+from random import choice, randint
 
 from player import Player
 import obstacle
 from alien import Alien, Extra
-from random import choice, randint
 from laser import Laser
 
 # Enable eager execution
@@ -437,7 +436,9 @@ if __name__ == '__main__':
 	actions = env.action_space.n
 	model = env.model
 	dqn = env.build_agent(model, actions)
-	dqn.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4))
+	lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+		initial_learning_rate=1e-2, decay_steps=10000, decay_rate=0.9)
+	dqn.compile(optimizer = tf.keras.optimizers.SGD(learning_rate=lr_schedule))
 	
 	# Training Loop
 	total_episodes = 1000
@@ -448,7 +449,7 @@ if __name__ == '__main__':
 		
 		while not done:
 			# Epsilon-greedy action selection
-			action = dqn.act(state)
+			action = dqn.model.predict(state[None])[0].argmax()
 			next_state, reward, done, _ = env.step(action)
 			total_reward += reward
 			
